@@ -4,15 +4,11 @@
 # In[1]:
 
 
-import sys  
-get_ipython().system('{sys.executable} -m pip install --user pandas numpy scikit-learn tensorflow matplotlib')
 
 
 # In[24]:
 
 
-import sys  
-get_ipython().system('{sys.executable} -m pip install --user prophet')
 import pandas as pd
 import numpy as np
 from statsmodels.tsa.arima.model import ARIMA
