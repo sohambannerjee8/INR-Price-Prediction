@@ -101,7 +101,7 @@ def plot_results(data, arima_forecast, prophet_forecast):
 # Main execution
 def main():
     # File path
-    file_path = '/Users/sohambanerjee/Downloads/HistoricalData.csv'
+    file_path = 'HistoricalData.csv'
     
     # Load and preprocess data
     data = load_and_preprocess_data(file_path)
@@ -166,7 +166,7 @@ def build_lstm_model(input_shape):
 
 def main():
     # Load data
-    file_path = '/Users/sohambanerjee/Downloads/HistoricalData.csv'
+    file_path = 'HistoricalData.csv'
     data = pd.read_csv(file_path)
     data['Date'] = pd.to_datetime(data['Date'], format='%m/%d/%Y')
     data = data.sort_values('Date').set_index('Date')[['Close/Last']].rename(columns={'Close/Last': 'Close'})
