@@ -5,39 +5,22 @@ import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.layers import LSTM, Dense, Dropout
 import matplotlib.pyplot as plt
 
-# Configure page
 st.set_page_config(page_title="USD/INR Auto Forecast", layout="wide")
 st.title("Automated USD/INR Exchange Rate Forecasting")
 
-# Custom styling
-st.markdown("""
-<style>
-    [data-testid="stMetricValue"] {
-        font-size: 1.5rem;
-    }
-    .stProgress > div > div > div {
-        background-color: #1f77b4;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 @st.cache_data
 def load_data():
-    try:
-        data = pd.read_csv('HistoricalData.csv')
-        if 'Date' not in data.columns or 'Close/Last' not in data.columns:
-            raise ValueError("Required columns not found in CSV")
-        data['Date'] = pd.to_datetime(data['Date'])
-        data = data.sort_values('Date').set_index('Date')[['Close/Last']]
-        return data.rename(columns={'Close/Last': 'Close'})
-    except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
-        return None
+    # Assuming your data format from earlier question
+    data = pd.read_csv('HistoricalData.csv')
+    data['Date'] = pd.to_datetime(data['Date'], format='%m/%d/%Y')
+    data = data.sort_values('Date').set_index('Date')[['Close/Last']]
+    data = data.rename(columns={'Close/Last': 'Close'})
+    return data
 
-def prepare_lstm_data(data, look_back=60):
+def prepare_lstm_data(data, look_back=20):  # Reduced look_back for more volatility
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(data[['Close']].values)
     
@@ -49,10 +32,11 @@ def prepare_lstm_data(data, look_back=60):
 
 def build_lstm_model(input_shape):
     model = Sequential([
-        LSTM(50, return_sequences=True, input_shape=input_shape),
+        LSTM(64, return_sequences=True, input_shape=input_shape),
+        Dropout(0.2),  # Add dropout to prevent overfitting
+        LSTM(32),
         Dropout(0.2),
-        LSTM(50),
-        Dropout(0.2),
+        Dense(16, activation='relu'),  # Additional dense layer for complexity
         Dense(1)
     ])
     model.compile(optimizer='adam', loss='mse')
@@ -68,59 +52,71 @@ class TrainingCallback(tf.keras.callbacks.Callback):
         self.progress_bar.progress(progress)
 
 def main():
-    data = load_data()
-    if data is None:
+    try:
+        data = load_data()
+    except FileNotFoundError:
+        st.error("HistoricalData.csv file not found")
         return
     
-    look_back = 60
+    st.subheader("Historical Data Overview")
+    st.dataframe(data.tail(10), use_container_width=True)
+    
+    # Parameters
+    look_back = 20  # Reduced to capture shorter-term patterns
     epochs = 50
     train_size = int(len(data) * 0.8)
     
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
     # Prepare data
+    status_text.text("Preparing training data...")
     train_data = data[:train_size]
-    test_data = data[train_size:]
+    test_sequence_data = pd.concat([train_data[-look_back:], data[train_size:]])
+    X_test, y_test, scaler = prepare_lstm_data(test_sequence_data, look_back)
+    X_train, y_train, _ = prepare_lstm_data(train_data, look_back)
     
-    X_train, y_train, scaler = prepare_lstm_data(train_data, look_back)
-    X_test, y_test, _ = prepare_lstm_data(pd.concat([train_data[-look_back:], test_data]), look_back)
-    
-    # Add validation split and early stopping
+    # Build and train model
+    status_text.text("Building LSTM model...")
     model = build_lstm_model((look_back, 1))
-    early_stopping = tf.keras.callbacks.EarlyStopping(
-        monitor='val_loss',
-        patience=10,
-        restore_best_weights=True
-    )
     
-    history = model.fit(
-        X_train, y_train,
-        epochs=epochs,
-        batch_size=32,
-        validation_split=0.1,
-        callbacks=[TrainingCallback(progress_bar, epochs), early_stopping],
-        verbose=0
-    )
+    status_text.text(f"Training model ({epochs} epochs)...")
+    progress_bar.progress(10)
     
-    # Generate predictions
+    # Add early stopping
+    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    history = model.fit(X_train, y_train,
+                       epochs=epochs,
+                       batch_size=32,
+                       validation_split=0.2,  # Add validation split
+                       verbose=0,
+                       callbacks=[TrainingCallback(progress_bar, epochs), early_stopping])
+    
+    # Generate test predictions
     status_text.text("Generating predictions...")
     test_predict = model.predict(X_test)
     test_predict = scaler.inverse_transform(test_predict)
-    
-    # Align test data with predictions
     test_data = data[train_size:][:len(test_predict)]
     
-    # Future predictions
+    # Future predictions with noise for realism
     last_sequence = scaler.transform(data[-look_back:][['Close']].values)
     future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), 
-                               periods=365, 
-                               freq='D')
+                                periods=60,  # Predict 2 months
+                                freq='D')
     future_predict = []
     current_sequence = last_sequence.copy()
     
+    # Add historical volatility
+    historical_volatility = np.std(data['Close'].pct_change().dropna())  # Daily volatility
+    
     for _ in range(len(future_dates)):
         pred = model.predict(current_sequence.reshape(1, look_back, 1), verbose=0)
-        future_predict.append(pred[0, 0])
+        # Add random noise based on historical volatility
+        noise = np.random.normal(0, historical_volatility * 0.5, 1)  # Scaled volatility
+        adjusted_pred = pred[0, 0] + noise[0]
+        future_predict.append(adjusted_pred)
         current_sequence = np.roll(current_sequence, -1)
-        current_sequence[-1] = pred
+        current_sequence[-1] = adjusted_pred
     
     future_predict = scaler.inverse_transform(np.array(future_predict).reshape(-1, 1))
     
@@ -143,7 +139,7 @@ def main():
     fig, ax = plt.subplots(figsize=(15, 6))
     ax.plot(data.index, data['Close'], label='Historical Data')
     ax.plot(test_data.index, test_predict, label='Model Predictions')
-    ax.plot(future_dates, future_predict, label='1-Year Forecast')
+    ax.plot(future_dates, future_predict, label='2-Month Forecast')
     ax.set_title("USD/INR Exchange Rate Forecast")
     ax.set_xlabel("Date")
     ax.set_ylabel("Exchange Rate")
@@ -152,7 +148,7 @@ def main():
     st.pyplot(fig)
     
     # Forecast table
-    st.subheader("Detailed 1-Year Forecast")
+    st.subheader("Detailed 2-Month Forecast")
     forecast_df = pd.DataFrame({
         'Date': future_dates,
         'Predicted Rate': future_predict.flatten()
