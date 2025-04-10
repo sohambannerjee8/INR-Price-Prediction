@@ -26,11 +26,16 @@ st.markdown("""
 
 @st.cache_data
 def load_data():
-    data = pd.read_csv('HistoricalData.csv')
-    data['Date'] = pd.to_datetime(data['Date'], format='%m/%d/%Y')
-    data = data.sort_values('Date').set_index('Date')[['Close/Last']]
-    data = data.rename(columns={'Close/Last': 'Close'})
-    return data
+    try:
+        data = pd.read_csv('HistoricalData.csv')
+        if 'Date' not in data.columns or 'Close/Last' not in data.columns:
+            raise ValueError("Required columns not found in CSV")
+        data['Date'] = pd.to_datetime(data['Date'])
+        data = data.sort_values('Date').set_index('Date')[['Close/Last']]
+        return data.rename(columns={'Close/Last': 'Close'})
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
+        return None
 
 def prepare_lstm_data(data, look_back=60):
     scaler = MinMaxScaler()
@@ -45,7 +50,9 @@ def prepare_lstm_data(data, look_back=60):
 def build_lstm_model(input_shape):
     model = Sequential([
         LSTM(50, return_sequences=True, input_shape=input_shape),
+        Dropout(0.2),
         LSTM(50),
+        Dropout(0.2),
         Dense(1)
     ])
     model.compile(optimizer='adam', loss='mse')
@@ -61,49 +68,37 @@ class TrainingCallback(tf.keras.callbacks.Callback):
         self.progress_bar.progress(progress)
 
 def main():
-    # Load data automatically
-    try:
-        data = load_data()
-    except FileNotFoundError:
-        st.error("HistoricalData.csv file not found in the working directory")
+    data = load_data()
+    if data is None:
         return
     
-    # Show data preview
-    st.subheader("Historical Data Overview")
-    st.dataframe(data.tail(10), use_container_width=True)
-    
-    # Fixed parameters
     look_back = 60
     epochs = 50
     train_size = int(len(data) * 0.8)
     
-    # Initialize progress
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
     # Prepare data
-    status_text.text("Preparing training data...")
     train_data = data[:train_size]
+    test_data = data[train_size:]
     
-    # Create test sequences using last look_back days of train + test data
-    test_sequence_data = pd.concat([train_data[-look_back:], data[train_size:]])
-    X_test, y_test, scaler = prepare_lstm_data(test_sequence_data, look_back)
+    X_train, y_train, scaler = prepare_lstm_data(train_data, look_back)
+    X_test, y_test, _ = prepare_lstm_data(pd.concat([train_data[-look_back:], test_data]), look_back)
     
-    X_train, y_train, _ = prepare_lstm_data(train_data, look_back)
-    
-    # Build and train model
-    status_text.text("Building LSTM model...")
+    # Add validation split and early stopping
     model = build_lstm_model((look_back, 1))
+    early_stopping = tf.keras.callbacks.EarlyStopping(
+        monitor='val_loss',
+        patience=10,
+        restore_best_weights=True
+    )
     
-    status_text.text(f"Training model ({epochs} epochs)...")
-    progress_bar.progress(10)
-    
-    # Train with progress updates
-    history = model.fit(X_train, y_train,
-                       epochs=epochs,
-                       batch_size=32,
-                       verbose=0,
-                       callbacks=[TrainingCallback(progress_bar, epochs)])
+    history = model.fit(
+        X_train, y_train,
+        epochs=epochs,
+        batch_size=32,
+        validation_split=0.1,
+        callbacks=[TrainingCallback(progress_bar, epochs), early_stopping],
+        verbose=0
+    )
     
     # Generate predictions
     status_text.text("Generating predictions...")
