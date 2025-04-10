@@ -5,6 +5,7 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 import matplotlib.pyplot as plt
+import tensorflow as tf 
 
 # Configure page
 st.set_page_config(page_title="USD/INR Auto Forecast", layout="wide")
