@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 import matplotlib.pyplot as plt
-import tensorflow as tf 
 
 # Configure page
 st.set_page_config(page_title="USD/INR Auto Forecast", layout="wide")
@@ -50,6 +51,15 @@ def build_lstm_model(input_shape):
     model.compile(optimizer='adam', loss='mse')
     return model
 
+class TrainingCallback(tf.keras.callbacks.Callback):
+    def __init__(self, progress_bar, epochs):
+        self.progress_bar = progress_bar
+        self.epochs = epochs
+        
+    def on_epoch_end(self, epoch, logs=None):
+        progress = 10 + int(90 * (epoch+1)/self.epochs)
+        self.progress_bar.progress(progress)
+
 def main():
     # Load data automatically
     try:
@@ -88,21 +98,18 @@ def main():
     progress_bar.progress(10)
     
     # Train with progress updates
-    class TrainingCallback(tf.keras.callbacks.Callback):
-        def on_epoch_end(self, epoch, logs=None):
-            progress = 10 + int(90 * (epoch+1)/epochs)
-            progress_bar.progress(progress)
-    
     history = model.fit(X_train, y_train,
                        epochs=epochs,
                        batch_size=32,
                        verbose=0,
-                       callbacks=[TrainingCallback()])
+                       callbacks=[TrainingCallback(progress_bar, epochs)])
     
     # Generate predictions
     status_text.text("Generating predictions...")
     test_predict = model.predict(X_test)
     test_predict = scaler.inverse_transform(test_predict)
+    
+    # Align test data with predictions
     test_data = test_data.iloc[look_back:]
     
     # Future predictions
