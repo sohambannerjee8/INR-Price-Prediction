@@ -99,25 +99,25 @@ def main():
     # Future predictions for 1 year with volatility control
     last_sequence = scaler.transform(data[-look_back:][['Close']].values)
     future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), 
-                                periods=365,  # 1-year forecast
+                                periods=365, 
                                 freq='D')
     future_predict = []
     current_sequence = last_sequence.copy()
     
-    # Historical statistics for anchoring
-    historical_volatility = np.std(data['Close'].pct_change().dropna())
+    # Historical statistics
+    historical_volatility = np.std(data['Close'].pct_change().dropna())  # e.g., ~0.002-0.005
     historical_mean = data['Close'].mean()
     
-    for i in range(len(future_dates)):
+   for i in range(len(future_dates)):
         pred = model.predict(current_sequence.reshape(1, look_back, 1), verbose=0)
-        # Add controlled noise
-        noise = np.random.normal(0, historical_volatility * 0.5, 1)
+        # Increase noise for more realistic daily changes
+        noise = np.random.normal(0, historical_volatility * 2.0, 1)  # Increased from 0.5 to 2.0
         adjusted_pred = pred[0, 0] + noise[0]
-        # Soft anchoring to prevent excessive drift
+        # Relaxed drift control (limit to ±10 INR, softer correction)
         if i > 0:
             drift = scaler.inverse_transform([[adjusted_pred]])[0, 0] - historical_mean
-            if abs(drift) > 5:  # Limit drift to ±5 from historical mean
-                adjusted_pred -= (drift * 0.1) / scaler.scale_[0]  # Gradual correction
+            if abs(drift) > 10:  # Wider range than ±5
+                adjusted_pred -= (drift * 0.05) / scaler.scale_[0]  # Reduced from 0.1 to 0.05
         future_predict.append(adjusted_pred)
         current_sequence = np.roll(current_sequence, -1)
         current_sequence[-1] = adjusted_pred
