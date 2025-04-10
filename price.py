@@ -108,7 +108,7 @@ def main():
     historical_volatility = np.std(data['Close'].pct_change().dropna())  # e.g., ~0.002-0.005
     historical_mean = data['Close'].mean()
     
-   for i in range(len(future_dates)):
+    for i in range(len(future_dates)):
         pred = model.predict(current_sequence.reshape(1, look_back, 1), verbose=0)
         # Increase noise for more realistic daily changes
         noise = np.random.normal(0, historical_volatility * 2.0, 1)  # Increased from 0.5 to 2.0
