@@ -84,11 +84,12 @@ def main():
     # Prepare data
     status_text.text("Preparing training data...")
     train_data = data[:train_size]
-    test_data = data[train_size + look_back:]  # Correct test start index
     
-    X_train, y_train, scaler = prepare_lstm_data(train_data, look_back)
-    X_test, y_test, _ = prepare_lstm_data(data, look_back)
-    X_test = X_test[train_size - look_back:]
+    # Create test sequences using last look_back days of train + test data
+    test_sequence_data = pd.concat([train_data[-look_back:], data[train_size:]])
+    X_test, y_test, scaler = prepare_lstm_data(test_sequence_data, look_back)
+    
+    X_train, y_train, _ = prepare_lstm_data(train_data, look_back)
     
     # Build and train model
     status_text.text("Building LSTM model...")
@@ -110,7 +111,7 @@ def main():
     test_predict = scaler.inverse_transform(test_predict)
     
     # Align test data with predictions
-    test_data = test_data.iloc[:len(test_predict)]  # Force equal lengths
+    test_data = data[train_size:][:len(test_predict)]
     
     # Future predictions
     last_sequence = scaler.transform(data[-look_back:][['Close']].values)
