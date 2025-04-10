@@ -84,7 +84,7 @@ def main():
     # Prepare data
     status_text.text("Preparing training data...")
     train_data = data[:train_size]
-    test_data = data[train_size:]
+    test_data = data[train_size + look_back:]  # Correct test start index
     
     X_train, y_train, scaler = prepare_lstm_data(train_data, look_back)
     X_test, y_test, _ = prepare_lstm_data(data, look_back)
@@ -110,7 +110,7 @@ def main():
     test_predict = scaler.inverse_transform(test_predict)
     
     # Align test data with predictions
-    test_data = test_data.iloc[look_back:]
+    test_data = test_data.iloc[:len(test_predict)]  # Force equal lengths
     
     # Future predictions
     last_sequence = scaler.transform(data[-look_back:][['Close']].values)
