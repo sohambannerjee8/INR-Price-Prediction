@@ -76,7 +76,7 @@ def main():
     st.title("USD/INR Exchange Rate Forecasting using LSTM")
     
     # File upload
-    uploaded_file = st.file_uploader("Upload historical data (CSV)", type="csv")
+    uploaded_file = st.file_uploader("HistoricalData.csv", type="csv")
     
     if uploaded_file is not None:
         data = load_data(uploaded_file)
