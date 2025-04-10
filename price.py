@@ -13,14 +13,13 @@ st.title("Automated USD/INR Exchange Rate Forecasting")
 
 @st.cache_data
 def load_data():
-    # Assuming your data format from earlier question
     data = pd.read_csv('HistoricalData.csv')
     data['Date'] = pd.to_datetime(data['Date'], format='%m/%d/%Y')
     data = data.sort_values('Date').set_index('Date')[['Close/Last']]
     data = data.rename(columns={'Close/Last': 'Close'})
     return data
 
-def prepare_lstm_data(data, look_back=20):  # Reduced look_back for more volatility
+def prepare_lstm_data(data, look_back=30):  # Adjusted to 30 for 1-year forecast
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(data[['Close']].values)
     
@@ -33,10 +32,10 @@ def prepare_lstm_data(data, look_back=20):  # Reduced look_back for more volatil
 def build_lstm_model(input_shape):
     model = Sequential([
         LSTM(64, return_sequences=True, input_shape=input_shape),
-        Dropout(0.2),  # Add dropout to prevent overfitting
+        Dropout(0.2),
         LSTM(32),
         Dropout(0.2),
-        Dense(16, activation='relu'),  # Additional dense layer for complexity
+        Dense(16, activation='relu'),
         Dense(1)
     ])
     model.compile(optimizer='adam', loss='mse')
@@ -62,7 +61,7 @@ def main():
     st.dataframe(data.tail(10), use_container_width=True)
     
     # Parameters
-    look_back = 20  # Reduced to capture shorter-term patterns
+    look_back = 30  # Balanced for 1-year forecast
     epochs = 50
     train_size = int(len(data) * 0.8)
     
@@ -83,37 +82,42 @@ def main():
     status_text.text(f"Training model ({epochs} epochs)...")
     progress_bar.progress(10)
     
-    # Add early stopping
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
     history = model.fit(X_train, y_train,
                        epochs=epochs,
                        batch_size=32,
-                       validation_split=0.2,  # Add validation split
+                       validation_split=0.2,
                        verbose=0,
                        callbacks=[TrainingCallback(progress_bar, epochs), early_stopping])
     
     # Generate test predictions
-    status_text.text("Generating predictions...")
+    status_text.text("Generating test predictions...")
     test_predict = model.predict(X_test)
     test_predict = scaler.inverse_transform(test_predict)
     test_data = data[train_size:][:len(test_predict)]
     
-    # Future predictions with noise for realism
+    # Future predictions for 1 year with volatility control
     last_sequence = scaler.transform(data[-look_back:][['Close']].values)
     future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), 
-                                periods=60,  # Predict 2 months
+                                periods=365,  # 1-year forecast
                                 freq='D')
     future_predict = []
     current_sequence = last_sequence.copy()
     
-    # Add historical volatility
-    historical_volatility = np.std(data['Close'].pct_change().dropna())  # Daily volatility
+    # Historical statistics for anchoring
+    historical_volatility = np.std(data['Close'].pct_change().dropna())
+    historical_mean = data['Close'].mean()
     
-    for _ in range(len(future_dates)):
+    for i in range(len(future_dates)):
         pred = model.predict(current_sequence.reshape(1, look_back, 1), verbose=0)
-        # Add random noise based on historical volatility
-        noise = np.random.normal(0, historical_volatility * 0.5, 1)  # Scaled volatility
+        # Add controlled noise
+        noise = np.random.normal(0, historical_volatility * 0.5, 1)
         adjusted_pred = pred[0, 0] + noise[0]
+        # Soft anchoring to prevent excessive drift
+        if i > 0:
+            drift = scaler.inverse_transform([[adjusted_pred]])[0, 0] - historical_mean
+            if abs(drift) > 5:  # Limit drift to ±5 from historical mean
+                adjusted_pred -= (drift * 0.1) / scaler.scale_[0]  # Gradual correction
         future_predict.append(adjusted_pred)
         current_sequence = np.roll(current_sequence, -1)
         current_sequence[-1] = adjusted_pred
@@ -139,7 +143,7 @@ def main():
     fig, ax = plt.subplots(figsize=(15, 6))
     ax.plot(data.index, data['Close'], label='Historical Data')
     ax.plot(test_data.index, test_predict, label='Model Predictions')
-    ax.plot(future_dates, future_predict, label='2-Month Forecast')
+    ax.plot(future_dates, future_predict, label='1-Year Forecast')
     ax.set_title("USD/INR Exchange Rate Forecast")
     ax.set_xlabel("Date")
     ax.set_ylabel("Exchange Rate")
@@ -148,7 +152,7 @@ def main():
     st.pyplot(fig)
     
     # Forecast table
-    st.subheader("Detailed 2-Month Forecast")
+    st.subheader("Detailed 1-Year Forecast")
     forecast_df = pd.DataFrame({
         'Date': future_dates,
         'Predicted Rate': future_predict.flatten()
